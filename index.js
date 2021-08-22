@@ -11,11 +11,13 @@ const baseURL = "https://TankTacticsService.drewcolgin.repl.co/";
 
 const db = new Database();
 
-db.list().then(keys => {
-  for(let i=0; i<keys.length; ++i){
-      db.delete(keys[i]);
-  }
-});
+
+/// REMOVE THIS BEFORE LIVE
+// db.list().then(keys => {
+//   for(let i=0; i<keys.length; ++i){
+//       db.delete(keys[i]);
+//   }
+// });
 
 app.get('/', (req, res) => res.send('I\'m alive, I promise'));
 
@@ -43,8 +45,9 @@ async function waitingForResponse(id) {
 
 async function handleNewPlayer(discordId, name) {
   const response = await axios.get(`${baseURL}api/generate`)
-  await db.set(discordId, {name, gameId: response.data})
-  await axios.put(`${baseURL}api/register/${response.data}`, {name})
+  await db.set(discordId, { name, gameId: response.data })
+  await db.set(response.data, discordId);
+  await axios.put(`${baseURL}api/register/${response.data}`, { name })
   const drew = await client.users.fetch(process.env.DREW_ID)
   await drew.send(`${name} registed with ID ${response.data}`)
   return response.data;
@@ -62,13 +65,14 @@ client.on('message', async (msg) => {
     const user = await client.users.fetch(inviteId);
     await msg.author.send(`Ok! Inviting ${user.username}`)
     await user.send("You've been invited to a game of Tank Tactics!\nTo accept this invitation, please respond with the name you'd like to use in the game.\nActual names encouraged e.g. `John`.\nOnce Set, this can not be changed!")
-    await db.set(user.id, {...templateUserEntry})
-  } else if (msg.channel.type === 'dm' && await waitingForResponse(msg.author.id)){
+    await db.set(user.id, { ...templateUserEntry })
+  } else if (msg.channel.type === 'dm' && await waitingForResponse(msg.author.id)) {
+    await db.delete(msg.author.id);
     const isAvailableName = await checkIfNameIsAvailable(msg.content);
 
     if (isAvailableName) {
       const gameId = await handleNewPlayer(msg.author.id, msg.content);
-      msg.author.send(`Welcome to the war ${msg.content}\nYour game ID is \`${gameId}\`. *Keep this a secret!*\nPlease see the rules for the game in the \`da-rules\` channel.\n${process.env.INVITE_LINK}`)
+      msg.author.send(`Welcome to the war ${msg.content}\nYour game key is \`${gameId}\`. **Keep this a secret!**\nPlease see the rules for the game in the \`da-rules\` channel.\nYour personal (and secret) link to play is:\n'https://www.drewcolgin.com/tank-tactics/#/${gameId}'\n\n${process.env.INVITE_LINK}`)
     } else {
       msg.author.send("Name already taken. Please enter another")
     }
@@ -98,3 +102,37 @@ app.post("/api/event", async (req, res) => {
     res.sendStatus(400);
   }
 });
+
+app.put("/api/updateRole", async (req, res) => {
+  try {
+    const tankTacticsGuild = await client.guilds.fetch("877973946962690048");
+    const discordId = await db.get(req.body.id);
+    const discordUser = await tankTacticsGuild.members.fetch(discordId);
+    discordUser.roles.set([])
+    if (req.body.role === 'jury') {
+      const juryRole = await tankTacticsGuild.roles.fetch('878134297733763143');
+      await discordUser.roles.add(juryRole);
+    } else if (req.body.role === 'commander') {
+      const commanderRole = await tankTacticsGuild.roles.fetch('878020570686574602');
+      await discordUser.roles.add(commanderRole);
+
+    }
+    res.sendStatus(200);
+  } catch (error) {
+    console.log(error);
+    res.sendStatus(400);
+  }
+});
+
+app.post("/api/clearChats", async (req, res) => {
+  try {
+    const highCommandChannel = await client.channels.fetch('877974291063394335')
+    for (let i = 0; i < 5; i++) {
+      await highCommandChannel.bulkDelete(100);
+    }
+    res.sendStatus(200);
+  } catch (error) {
+    console.log(error)
+    res.sendStatus(400);
+  }
+})
